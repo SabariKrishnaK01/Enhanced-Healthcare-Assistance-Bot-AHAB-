@@ -1,0 +1,1134 @@
+import numpy as np
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
+import time
+import warnings
+import re
+from datetime import datetime, timedelta
+warnings.filterwarnings('ignore')
+
+class EnhancedHealthcareAssistanceBot:
+    def __init__(self):
+        self.initialize_data()
+        self.train_model()
+        self.current_symptoms = []
+        self.user_info = {}
+        self.conversation_history = []
+        self.session_start = datetime.now()
+        self.severity_indicators = {
+            'high': ['severe', 'intense', 'unbearable', 'extreme', 'sharp', 'stabbing'],
+            'medium': ['moderate', 'noticeable', 'bothering', 'uncomfortable'],
+            'low': ['mild', 'slight', 'little', 'minor', 'barely']
+        }
+        
+    def initialize_data(self):
+        self.disease_classes = {
+            'Fever': {
+                'keywords': ['fever', 'temperature', 'high temp', 'running temperature', 'chills', 'hot', 'burning up', 'feverish'],
+                'treatment': {
+                    'adult': {
+                        'mild': {
+                            'medications': ['Paracetamol 500-1000mg every 4-6 hours (max 4g/day)', 'Ibuprofen 200-400mg every 6-8 hours'],
+                            'home_remedies': ['Rest in a cool, comfortable room', 'Drink plenty of fluids (water, herbal teas)', 'Take lukewarm baths or showers', 'Use light bedding and clothing'],
+                            'duration': '2-3 days with proper care'
+                        },
+                        'moderate': {
+                            'medications': ['Paracetamol 1000mg every 6 hours', 'Ibuprofen 400mg every 8 hours', 'Aspirin 300-600mg every 4 hours (adults only)'],
+                            'home_remedies': ['Complete bed rest', 'Increase fluid intake significantly', 'Cool compresses on forehead', 'Monitor temperature every 2 hours'],
+                            'duration': '3-5 days, seek medical advice if persists'
+                        },
+                        'severe': {
+                            'medications': ['SEEK IMMEDIATE MEDICAL ATTENTION', 'Do not self-medicate for high fever'],
+                            'home_remedies': ['Emergency cooling measures', 'Continuous fluid replacement', 'Call emergency services if temperature >40°C (104°F)'],
+                            'duration': 'Immediate medical intervention required'
+                        }
+                    },
+                    'child': {
+                        'mild': {
+                            'medications': ['Paracetamol: 10-15mg/kg every 4-6 hours', 'Ibuprofen: 5-10mg/kg every 6-8 hours (>6 months)'],
+                            'home_remedies': ['Ensure adequate rest', 'Offer frequent small sips of fluids', 'Dress in light clothing', 'Room temperature baths'],
+                            'duration': '1-2 days with careful monitoring'
+                        },
+                        'moderate': {
+                            'medications': ['Consult pediatrician for proper dosage', 'Alternate paracetamol and ibuprofen if advised'],
+                            'home_remedies': ['Constant supervision', 'Encourage fluid intake', 'Cool environment', 'Monitor for other symptoms'],
+                            'duration': '2-3 days, consult doctor if no improvement'
+                        },
+                        'severe': {
+                            'medications': ['EMERGENCY PEDIATRIC CARE REQUIRED', 'Contact pediatrician immediately'],
+                            'home_remedies': ['Emergency cooling', 'Prepare for hospital visit', 'Monitor breathing and consciousness'],
+                            'duration': 'Immediate medical attention'
+                        }
+                    }
+                },
+                'red_flags': ['Temperature >39.5°C (103°F)', 'Fever lasting >3 days', 'Difficulty breathing', 'Severe headache', 'Stiff neck', 'Rash', 'Confusion'],
+                'questions': [
+                    "I have acute fever what medication should I take?",
+                    "I have a fever how can I lower it and what could be the cause?",
+                    "I am running a temperature what medicine should I take?",
+                    "I have fever with chills and body aches"
+                ]
+            },
+            'Cold': {
+                'keywords': ['cold', 'sore throat', 'runny nose', 'congestion', 'sneezing', 'blocked nose', 'stuffy', 'throat pain'],
+                'treatment': {
+                    'adult': {
+                        'mild': {
+                            'medications': ['Decongestants: Pseudoephedrine 30-60mg every 4-6 hours', 'Throat lozenges with menthol', 'Saline nasal spray'],
+                            'home_remedies': ['Warm salt water gargles (3-4 times daily)', 'Steam inhalation', 'Honey and ginger tea', 'Adequate rest and hydration'],
+                            'duration': '5-7 days'
+                        },
+                        'moderate': {
+                            'medications': ['Combination cold medications (follow package instructions)', 'Antihistamines for runny nose', 'Pain relievers for throat pain'],
+                            'home_remedies': ['Humidify your environment', 'Warm soups and broths', 'Elevate head while sleeping', 'Avoid smoking and pollutants'],
+                            'duration': '7-10 days'
+                        },
+                        'severe': {
+                            'medications': ['Consult doctor for possible bacterial infection', 'May require antibiotic assessment'],
+                            'home_remedies': ['Complete rest', 'Intensive hydration', 'Steam therapy multiple times daily'],
+                            'duration': '10-14 days, medical evaluation recommended'
+                        }
+                    },
+                    'child': {
+                        'mild': {
+                            'medications': ['Saline drops for nasal congestion', 'Age-appropriate throat lozenges (>4 years)', 'Avoid aspirin completely'],
+                            'home_remedies': ['Extra fluids and rest', 'Humidified air', 'Gentle suction for infants', 'Warm baths for comfort'],
+                            'duration': '3-5 days'
+                        },
+                        'moderate': {
+                            'medications': ['Consult pediatrician for appropriate medications', 'Avoid over-the-counter cold medicines <2 years'],
+                            'home_remedies': ['Close monitoring', 'Encourage fluid intake', 'Comfortable sleeping position', 'Avoid daycare if possible'],
+                            'duration': '5-7 days'
+                        },
+                        'severe': {
+                            'medications': ['PEDIATRIC MEDICAL EVALUATION REQUIRED', 'Professional assessment needed'],
+                            'home_remedies': ['Intensive supportive care', 'Monitor for breathing difficulties', 'Prepare for medical consultation'],
+                            'duration': 'Immediate medical attention if severe'
+                        }
+                    }
+                },
+                'red_flags': ['High fever >38.5°C', 'Difficulty swallowing', 'Severe throat pain', 'Breathing difficulties', 'Symptoms >10 days', 'Ear pain'],
+                'questions': [
+                    "I have a cold what are the remedies to alleviate it?",
+                    "I have a severe cold what medication should I use?",
+                    "I have a sore throat what are the remedies?",
+                    "I have runny nose and congestion that won't go away"
+                ]
+            },
+            'Cough': {
+                'keywords': ['cough', 'persistent cough', 'dry cough', 'chesty cough', 'phlegm', 'mucus', 'hacking', 'whooping'],
+                'treatment': {
+                    'adult': {
+                        'mild': {
+                            'medications': ['Dextromethorphan 15-30mg every 4 hours for dry cough', 'Guaifenesin 200-400mg every 4 hours for productive cough', 'Throat lozenges'],
+                            'home_remedies': ['Honey (1-2 teaspoons before bed)', 'Warm water with lemon', 'Steam inhalation', 'Stay hydrated'],
+                            'duration': '1-2 weeks'
+                        },
+                        'moderate': {
+                            'medications': ['Combination cough medicines', 'Expectorants for chest congestion', 'Anti-inflammatory for throat irritation'],
+                            'home_remedies': ['Elevate head during sleep', 'Avoid irritants (smoke, dust)', 'Warm compresses on chest', 'Herbal teas with honey'],
+                            'duration': '2-3 weeks'
+                        },
+                        'severe': {
+                            'medications': ['MEDICAL EVALUATION REQUIRED', 'Possible prescription medication needed', 'Rule out serious conditions'],
+                            'home_remedies': ['Complete voice rest', 'Intensive hydration', 'Avoid all irritants', 'Monitor for blood in sputum'],
+                            'duration': 'Medical attention if >3 weeks or severe symptoms'
+                        }
+                    },
+                    'child': {
+                        'mild': {
+                            'medications': ['Honey for children >1 year (1/2 teaspoon)', 'Avoid cough suppressants <4 years', 'Saline nasal drops'],
+                            'home_remedies': ['Warm fluids', 'Humidified air', 'Gentle chest rubs', 'Comfortable positioning'],
+                            'duration': '1-2 weeks'
+                        },
+                        'moderate': {
+                            'medications': ['Age-appropriate cough medicines (consult pediatrician)', 'Natural remedies preferred'],
+                            'home_remedies': ['Frequent small fluid intake', 'Steam bathroom sessions', 'Avoid exposure to irritants', 'Monitor sleep patterns'],
+                            'duration': '2-3 weeks with medical guidance'
+                        },
+                        'severe': {
+                            'medications': ['IMMEDIATE PEDIATRIC CONSULTATION', 'Professional evaluation essential'],
+                            'home_remedies': ['Supportive care only', 'Monitor breathing patterns', 'Prepare for medical visit', 'Document symptoms'],
+                            'duration': 'Urgent medical attention required'
+                        }
+                    }
+                },
+                'red_flags': ['Coughing blood', 'Breathing difficulties', 'High fever', 'Chest pain', 'Cough >3 weeks', 'Weight loss', 'Night sweats'],
+                'questions': [
+                    "I have a cough how can I ease it and what could be the cause?",
+                    "I have a persistent dry cough what should I do?",
+                    "I have cough with phlegm and chest congestion",
+                    "My chest hurts when I cough and it's getting worse"
+                ]
+            },
+            'Headache': {
+                'keywords': ['headache', 'migraine', 'head pain', 'throbbing pain', 'tension', 'skull pain', 'temples', 'pressure'],
+                'treatment': {
+                    'adult': {
+                        'mild': {
+                            'medications': ['Paracetamol 500-1000mg every 4-6 hours', 'Ibuprofen 200-400mg every 6-8 hours', 'Aspirin 300-600mg'],
+                            'home_remedies': ['Rest in dark, quiet room', 'Apply cold/warm compress', 'Gentle neck and shoulder massage', 'Stay hydrated'],
+                            'duration': '2-4 hours with treatment'
+                        },
+                        'moderate': {
+                            'medications': ['Combination pain relievers', 'Anti-inflammatory medications', 'Caffeine-containing analgesics (if not contraindicated)'],
+                            'home_remedies': ['Complete rest in dark room', 'Relaxation techniques', 'Regular meal timing', 'Stress management'],
+                            'duration': '4-8 hours, may require stronger medication'
+                        },
+                        'severe': {
+                            'medications': ['MEDICAL EVALUATION NEEDED', 'Possible prescription medication', 'Rule out serious causes'],
+                            'home_remedies': ['Avoid all triggers', 'Complete rest', 'Ice packs', 'Monitor for neurological symptoms'],
+                            'duration': 'Immediate medical attention for severe/sudden headaches'
+                        }
+                    },
+                    'child': {
+                        'mild': {
+                            'medications': ['Paracetamol (age-appropriate dose)', 'Ibuprofen >6 months (with food)', 'Avoid aspirin completely'],
+                            'home_remedies': ['Quiet, dim environment', 'Adequate sleep', 'Regular meals', 'Gentle head massage'],
+                            'duration': '1-2 hours with proper care'
+                        },
+                        'moderate': {
+                            'medications': ['Consult pediatrician for appropriate treatment', 'May need preventive strategies'],
+                            'home_remedies': ['Identify and avoid triggers', 'Consistent sleep schedule', 'Stress reduction', 'Hydration maintenance'],
+                            'duration': '2-4 hours, track patterns'
+                        },
+                        'severe': {
+                            'medications': ['URGENT PEDIATRIC EVALUATION', 'Emergency assessment may be needed'],
+                            'home_remedies': ['Monitor for associated symptoms', 'Document onset and characteristics', 'Prepare for medical consultation'],
+                            'duration': 'Immediate medical attention'
+                        }
+                    }
+                },
+                'red_flags': ['Sudden severe headache', 'Headache with fever and stiff neck', 'Changes in vision', 'Weakness or numbness', 'Headache after injury', 'Progressive worsening'],
+                'questions': [
+                    "I have a headache what is the best medication?",
+                    "I have intense headache pain what should I take?",
+                    "I have throbbing pain in my head and feel nauseous",
+                    "My head hurts every day and it's getting worse"
+                ]
+            }
+        }
+        
+        self.questions = []
+        self.labels = []
+        for disease, data in self.disease_classes.items():
+            for question in data['questions']:
+                self.questions.append(question)
+                self.labels.append(disease)
+    
+    def preprocess_text(self, text):
+        # Enhanced preprocessing
+        stop_words = ['is', 'are', 'the', 'with', 'there', 'it', 'and', 'but', 
+                     'they', 'this', 'that', 'then', 'will', 'should', 'has', 
+                     'had', 'their', 'could', 'can', 'did', 'a', 'an', 'how', 'what', 'when', 'where']
+        
+        # Clean and normalize text
+        text = re.sub(r'[^\w\s]', ' ', text.lower())
+        words = text.split()
+        filtered_words = [word for word in words if word not in stop_words and len(word) > 2]
+        return ' '.join(filtered_words)
+    
+    def train_model(self):
+        # Use TF-IDF for better feature extraction
+        self.vectorizer = TfidfVectorizer(preprocessor=self.preprocess_text, ngram_range=(1, 2))
+        X = self.vectorizer.fit_transform(self.questions)
+        
+        # Use Random Forest for better classification
+        self.classifier = RandomForestClassifier(n_estimators=100, random_state=42)
+        self.classifier.fit(X, self.labels)
+    
+    def validate_input(self, input_text, input_type="general"):
+        """Enhanced input validation"""
+        if not input_text or not input_text.strip():
+            return False, "Please provide a valid input."
+        
+        if input_type == "age":
+            if not input_text.isdigit() or not (0 < int(input_text) <= 120):
+                return False, "Please enter a valid age between 1 and 120."
+        
+        elif input_type == "name":
+            if len(input_text.strip()) < 2 or not re.match(r'^[a-zA-Z\s]+$', input_text.strip()):
+                return False, "Please enter a valid name (letters only, minimum 2 characters)."
+        
+        elif input_type == "symptoms":
+            if len(input_text.strip()) < 5:
+                return False, "Please provide a more detailed description of your symptoms."
+        
+        return True, "Valid input."
+    
+    def get_temperature_input(self, prompt):
+        """Enhanced temperature input with better validation"""
+        attempts = 0
+        max_attempts = 3
+        
+        while attempts < max_attempts:
+            print(f"\n{prompt}")
+            print("Examples: '38.5 C', '101.3 F', '37.2°C', '99.1°F'")
+            temp_input = input("Temperature: ").strip().upper().replace('°', '')
+            
+            if not temp_input:
+                print("❌ Please enter your temperature.")
+                attempts += 1
+                continue
+            
+            # Parse temperature
+            match = re.match(r'(\d+\.?\d*)\s*([CF])', temp_input)
+            if not match:
+                print("❌ Please use format like '38.5 C' or '101.3 F'")
+                attempts += 1
+                continue
+            
+            try:
+                value = float(match.group(1))
+                unit = match.group(2)
+                
+                if unit == 'C':
+                    if 30 <= value <= 45:  # Reasonable range in Celsius
+                        fahrenheit = (value * 9/5) + 32
+                        return value, fahrenheit, 'C'
+                    else:
+                        print("❌ Please enter a realistic body temperature (30-45°C)")
+                else:  # Fahrenheit
+                    if 86 <= value <= 113:  # Reasonable range in Fahrenheit
+                        celsius = (value - 32) * 5/9
+                        return celsius, value, 'F'
+                    else:
+                        print("❌ Please enter a realistic body temperature (86-113°F)")
+                
+                attempts += 1
+            except ValueError:
+                print("❌ Please enter a valid number for temperature.")
+                attempts += 1
+        
+        print("❌ Maximum attempts reached. Using default temperature assessment.")
+        return None, None, None
+    
+    def assess_severity(self, symptoms_text, temperature=None):
+        """Assess symptom severity based on description and temperature"""
+        severity_score = 0
+        text_lower = symptoms_text.lower()
+        
+        # Check for severity keywords
+        for severity, keywords in self.severity_indicators.items():
+            for keyword in keywords:
+                if keyword in text_lower:
+                    if severity == 'high':
+                        severity_score += 3
+                    elif severity == 'medium':
+                        severity_score += 2
+                    else:
+                        severity_score += 1
+        
+        # Temperature-based severity
+        if temperature:
+            celsius_temp = temperature[0] if temperature[0] else 37
+            if celsius_temp >= 39.5:  # 103°F
+                severity_score += 3
+            elif celsius_temp >= 38.5:  # 101.3°F
+                severity_score += 2
+            elif celsius_temp >= 37.8:  # 100°F
+                severity_score += 1
+        
+        # Determine severity level
+        if severity_score >= 5:
+            return 'severe'
+        elif severity_score >= 3:
+            return 'moderate'
+        else:
+            return 'mild'
+    
+    def get_user_info(self):
+        """Enhanced user information collection"""
+        print("\n" + "="*60)
+        print("🏥 WELCOME TO AHAB - PROFESSIONAL HEALTHCARE ASSISTANT")
+        print("="*60)
+        print("To provide you with the most accurate guidance, I need some information.")
+        
+        # Name validation
+        while True:
+            name = input("\n👤 May I know your name? ").strip()
+            valid, message = self.validate_input(name, "name")
+            if valid:
+                self.user_info['name'] = name.title()
+                break
+            print(f"❌ {message}")
+        
+        # Age validation
+        while True:
+            age = input("🎂 Your age? ").strip()
+            valid, message = self.validate_input(age, "age")
+            if valid:
+                self.user_info['age'] = int(age)
+                break
+            print(f"❌ {message}")
+        
+        # Gender validation
+        while True:
+            print("\n🚻 Gender options:")
+            print("1. Male")
+            print("2. Female") 
+            print("3. Transgender")
+            print("4. Prefer not to say")
+            
+            gender_choice = input("Select (1-4): ").strip()
+            gender_map = {'1': 'Male', '2': 'Female', '3': 'Transgender', '4': 'Not specified'}
+            
+            if gender_choice in gender_map:
+                self.user_info['gender'] = gender_map[gender_choice]
+                break
+            print("❌ Please select a valid option (1-4).")
+        
+        # Medical history (optional)
+        print(f"\n📋 {self.user_info['name']}, do you have any chronic medical conditions?")
+        print("(diabetes, hypertension, asthma, allergies, etc.)")
+        medical_history = input("Enter conditions or 'none': ").strip()
+        self.user_info['medical_history'] = medical_history if medical_history.lower() != 'none' else 'None reported'
+        
+        # Current medications (optional)
+        print("\n💊 Are you currently taking any medications?")
+        medications = input("Enter medications or 'none': ").strip()
+        self.user_info['medications'] = medications if medications.lower() != 'none' else 'None reported'
+        
+        print(f"\n✅ Thank you, {self.user_info['name']}! Your information has been recorded.")
+        print("\n🤖 I'm AHAB - your Automated Healthcare Assistance Bot")
+        print("🔬 I can help with preliminary assessment of common conditions:")
+        print("   • Fever  • Cold  • Cough  • Headache")
+        print("\n⚠️  IMPORTANT: I provide guidance only. Always consult healthcare professionals for diagnosis and treatment.")
+        
+        input("\nPress Enter to continue...")
+    
+    def predict_disease(self, user_input):
+        """Enhanced disease prediction with confidence scoring"""
+        processed_input = self.preprocess_text(user_input)
+        input_vector = self.vectorizer.transform([processed_input])
+        
+        # Get predictions and probabilities
+        disease = self.classifier.predict(input_vector)[0]
+        probabilities = self.classifier.predict_proba(input_vector)[0]
+        
+        # Get confidence score
+        disease_classes = self.classifier.classes_
+        disease_index = np.where(disease_classes == disease)[0][0]
+        confidence = probabilities[disease_index]
+        
+        return disease, confidence
+    
+    def comprehensive_symptom_assessment(self, disease, user_input):
+        """Comprehensive symptom assessment with follow-up questions"""
+        print(f"\n🔍 SYMPTOM ASSESSMENT FOR {disease.upper()}")
+        print("="*50)
+        
+        # Assess initial severity
+        initial_severity = self.assess_severity(user_input)
+        print(f"Initial assessment: {initial_severity.title()} severity")
+        
+        # Disease-specific questions
+        questions_map = {
+            'Fever': [
+                ("What's your current temperature?", "temperature"),
+                ("How long have you had the fever?", "duration"),
+                ("Do you have chills, sweating, or body aches?", "symptoms"),
+                ("Any headache, nausea, or loss of appetite?", "symptoms")
+            ],
+            'Cold': [
+                ("Is your nose runny, stuffy, or both?", "symptoms"),
+                ("Do you have a sore throat or cough?", "symptoms"),
+                ("How long have you had these symptoms?", "duration"),
+                ("Any fever, headache, or body aches?", "symptoms")
+            ],
+            'Cough': [
+                ("Is your cough dry or are you bringing up mucus/phlegm?", "symptoms"),
+                ("How long have you had the cough?", "duration"),
+                ("Does it worsen at night or with activity?", "symptoms"),
+                ("Any chest pain, fever, or difficulty breathing?", "symptoms")
+            ],
+            'Headache': [
+                ("On a scale of 1-10, how severe is your headache?", "severity"),
+                ("Where exactly do you feel the pain? (forehead, temples, back of head)", "location"),
+                ("How long have you had this headache?", "duration"),
+                ("Any nausea, light sensitivity, or vision changes?", "symptoms")
+            ]
+        }
+        
+        assessment_data = {'severity': initial_severity, 'temperature': None}
+        
+        print(f"\n📝 Please answer these questions about your {disease.lower()}:")
+        
+        for i, (question, q_type) in enumerate(questions_map[disease], 1):
+            print(f"\n{i}. {question}")
+            
+            if q_type == "temperature":
+                temp_data = self.get_temperature_input("Please enter your temperature:")
+                if temp_data[0]:  # Valid temperature provided
+                    assessment_data['temperature'] = temp_data
+                    answer = f"{temp_data[0]:.1f}°C ({temp_data[1]:.1f}°F)"
+                else:
+                    answer = "Not provided"
+            else:
+                answer = input("Your answer: ").strip()
+                if not answer:
+                    answer = "Not specified"
+            
+            self.current_symptoms.append((question, answer))
+            
+            # Update severity based on specific answers
+            if q_type == "severity" and answer.isdigit():
+                severity_num = int(answer)
+                if severity_num >= 8:
+                    assessment_data['severity'] = 'severe'
+                elif severity_num >= 5:
+                    assessment_data['severity'] = 'moderate'
+        
+        # Final severity assessment
+        final_severity = self.assess_severity(user_input, assessment_data.get('temperature'))
+        assessment_data['final_severity'] = final_severity
+        
+        return assessment_data
+    
+    def provide_enhanced_treatment(self, disease, assessment_data):
+        """Provide comprehensive treatment recommendations"""
+        print("\n" + "="*60)
+        print(f"🏥 COMPREHENSIVE TREATMENT PLAN - {disease.upper()}")
+        print("="*60)
+        
+        # Patient profile
+        patient_type = 'child' if self.user_info['age'] < 18 else 'adult'
+        severity = assessment_data['final_severity']
+        
+        print(f"\n👤 PATIENT PROFILE:")
+        print(f"   Name: {self.user_info['name']}")
+        print(f"   Age: {self.user_info['age']} years ({patient_type})")
+        print(f"   Severity: {severity.title()}")
+        
+        if self.current_symptoms:
+            print(f"\n📋 REPORTED SYMPTOMS:")
+            for q, a in self.current_symptoms:
+                print(f"   • {q}: {a}")
+        
+        # Treatment recommendations
+        treatment_data = self.disease_classes[disease]['treatment'][patient_type][severity]
+        
+        print(f"\n💊 RECOMMENDED MEDICATIONS:")
+        for med in treatment_data['medications']:
+            print(f"   ✓ {med}")
+        
+        print(f"\n🏠 HOME CARE RECOMMENDATIONS:")
+        for remedy in treatment_data['home_remedies']:
+            print(f"   ✓ {remedy}")
+        
+        print(f"\n⏱️ EXPECTED DURATION:")
+        print(f"   {treatment_data['duration']}")
+        
+        # Red flag warnings
+        red_flags = self.disease_classes[disease]['red_flags']
+        print(f"\n🚨 SEEK IMMEDIATE MEDICAL ATTENTION IF YOU EXPERIENCE:")
+        for flag in red_flags:
+            print(f"   ⚠️  {flag}")
+        
+        # Additional personalized advice
+        self.provide_personalized_advice(disease, patient_type, assessment_data)
+        
+        # Follow-up recommendations
+        print(f"\n📞 FOLLOW-UP CARE:")
+        print(f"   • Monitor symptoms closely")
+        print(f"   • Contact healthcare provider if symptoms worsen")
+        print(f"   • Return to AHAB for reassessment if needed")
+        
+        if severity == 'severe':
+            print(f"\n🚨 URGENT: Given the severity, please consult a healthcare professional TODAY")
+        
+        # Reset symptoms for next query
+        self.current_symptoms = []
+        
+        print(f"\n" + "="*60)
+        input("Press Enter to return to main menu...")
+    
+    def provide_personalized_advice(self, disease, patient_type, assessment_data):
+        """Provide personalized advice based on patient profile"""
+        print(f"\n🎯 PERSONALIZED RECOMMENDATIONS:")
+        
+        # Age-specific advice
+        if patient_type == 'child':
+            print(f"   • Monitor child closely and ensure adequate supervision")
+            print(f"   • Maintain comfortable room temperature")
+            print(f"   • Encourage rest and limit activities")
+            if self.user_info['age'] < 2:
+                print(f"   • For infants: Consult pediatrician before any medication")
+        else:
+            print(f"   • Get adequate rest - consider taking time off work")
+            print(f"   • Maintain good hygiene to prevent spread")
+            print(f"   • Avoid alcohol and smoking")
+        
+        # Medical history considerations
+        if self.user_info['medical_history'] != 'None reported':
+            print(f"   • Given your medical history ({self.user_info['medical_history']}),")
+            print(f"     consult your regular doctor before taking new medications")
+        
+        # Current medications
+        if self.user_info['medications'] != 'None reported':
+            print(f"   • Check with pharmacist/doctor for drug interactions")
+            print(f"     with your current medications: {self.user_info['medications']}")
+        
+        # Temperature-specific advice for fever
+        if disease == 'Fever' and assessment_data.get('temperature'):
+            temp_c = assessment_data['temperature'][0]
+            if temp_c >= 39.5:
+                print(f"   • Your temperature ({temp_c:.1f}°C) is very high - seek medical care")
+            elif temp_c >= 38.5:
+                print(f"   • Monitor temperature every 2 hours")
+                print(f"   • Use cooling measures: light clothing, cool room")
+    
+    def show_main_menu(self):
+        """Enhanced main menu with better formatting"""
+        print("\n" + "="*60)
+        print("🏥 AHAB MAIN MENU")
+        print("="*60)
+        print("1. 🔍 Symptom Assessment & Treatment Guidance")
+        print("2. 📚 Learn About Common Health Conditions")
+        print("3. 📊 View Your Health Summary")
+        print("4. 🆘 Emergency Guidelines")
+        print("5. ❌ Exit AHAB System")
+        
+        while True:
+            choice = input("\nSelect an option (1-5): ").strip()
+            if choice in ['1', '2', '3', '4', '5']:
+                return choice
+            print("❌ Please enter a number between 1 and 5")
+    
+    def show_health_conditions_menu(self):
+        """Comprehensive health conditions information"""
+        while True:
+            print("\n" + "="*60)
+            print("📚 HEALTH CONDITIONS ENCYCLOPEDIA")
+            print("="*60)
+            
+            conditions = list(self.disease_classes.keys())
+            for i, condition in enumerate(conditions, 1):
+                print(f"{i}. 🔍 {condition}")
+            
+            print(f"{len(conditions)+1}. 📋 Compare All Conditions")
+            print(f"{len(conditions)+2}. 🏠 Home Remedy Guidelines")
+            print(f"{len(conditions)+3}. 💊 Medication Safety Tips")
+            print(f"{len(conditions)+4}. 🔙 Back to Main Menu")
+            
+            try:
+                choice = input(f"\nSelect option (1-{len(conditions)+4}): ").strip()
+                if not choice:
+                    print("❌ Please enter a valid option.")
+                    continue
+                
+                choice = int(choice)
+                
+                if 1 <= choice <= len(conditions):
+                    condition = conditions[choice-1]
+                    self.show_detailed_condition_info(condition)
+                elif choice == len(conditions)+1:
+                    self.compare_all_conditions()
+                elif choice == len(conditions)+2:
+                    self.show_home_remedy_guidelines()
+                elif choice == len(conditions)+3:
+                    self.show_medication_safety()
+                elif choice == len(conditions)+4:
+                    break
+                else:
+                    print("❌ Please select a valid option.")
+                    
+            except ValueError:
+                print("❌ Please enter a number.")
+    
+    def show_detailed_condition_info(self, condition):
+        """Show detailed information about a specific condition"""
+        print(f"\n" + "="*60)
+        print(f"🔍 DETAILED INFORMATION: {condition.upper()}")
+        print("="*60)
+        
+        condition_data = self.disease_classes[condition]
+        
+        # Overview
+        print(f"\n📖 OVERVIEW:")
+        condition_descriptions = {
+            'Fever': "A temporary increase in body temperature, often due to illness. Normal body temperature is around 37°C (98.6°F).",
+            'Cold': "A viral infection of the upper respiratory tract, causing symptoms like runny nose, congestion, and sore throat.",
+            'Cough': "A reflex action to clear airways of mucus, irritants, or foreign particles. Can be dry or productive.",
+            'Headache': "Pain in the head or neck region, ranging from mild to severe. Can be tension-type, migraine, or other types."
+        }
+        print(f"   {condition_descriptions[condition]}")
+        
+        # Common symptoms
+        print(f"\n🎯 COMMON SYMPTOMS:")
+        for keyword in condition_data['keywords']:
+            print(f"   • {keyword.title()}")
+        
+        # Causes
+        causes = {
+            'Fever': ['Viral infections', 'Bacterial infections', 'Inflammatory conditions', 'Medications', 'Heat exposure'],
+            'Cold': ['Rhinoviruses', 'Coronaviruses', 'Close contact with infected person', 'Touching contaminated surfaces'],
+            'Cough': ['Viral infections', 'Allergies', 'Asthma', 'Acid reflux', 'Environmental irritants'],
+            'Headache': ['Stress', 'Dehydration', 'Eye strain', 'Lack of sleep', 'Hormonal changes', 'Certain foods']
+        }
+        print(f"\n🧬 COMMON CAUSES:")
+        for cause in causes[condition]:
+            print(f"   • {cause}")
+        
+        # Treatment by severity and age
+        print(f"\n💊 TREATMENT OPTIONS:")
+        patient_type = 'child' if self.user_info.get('age', 18) < 18 else 'adult'
+        
+        for severity in ['mild', 'moderate', 'severe']:
+            print(f"\n   {severity.upper()} CASES:")
+            treatment = condition_data['treatment'][patient_type][severity]
+            
+            print(f"   📋 Medications:")
+            for med in treatment['medications']:
+                print(f"      ✓ {med}")
+            
+            print(f"   🏠 Home Care:")
+            for remedy in treatment['home_remedies']:
+                print(f"      ✓ {remedy}")
+            
+            print(f"   ⏱️ Duration: {treatment['duration']}")
+        
+        # Prevention tips
+        prevention = {
+            'Fever': ['Maintain good hygiene', 'Get vaccinated', 'Avoid close contact with sick people', 'Eat nutritious foods'],
+            'Cold': ['Wash hands frequently', 'Avoid touching face', 'Maintain distance from sick people', 'Boost immunity with good nutrition'],
+            'Cough': ['Avoid irritants and allergens', 'Stay hydrated', 'Don\'t smoke', 'Treat underlying conditions'],
+            'Headache': ['Manage stress', 'Stay hydrated', 'Regular sleep schedule', 'Limit screen time', 'Regular exercise']
+        }
+        print(f"\n🛡️ PREVENTION TIPS:")
+        for tip in prevention[condition]:
+            print(f"   • {tip}")
+        
+        # Red flags
+        print(f"\n🚨 SEEK IMMEDIATE MEDICAL HELP IF:")
+        for flag in condition_data['red_flags']:
+            print(f"   ⚠️  {flag}")
+        
+        input(f"\nPress Enter to continue...")
+    
+    def compare_all_conditions(self):
+        """Compare all conditions side by side"""
+        print(f"\n" + "="*80)
+        print("📋 CONDITION COMPARISON CHART")
+        print("="*80)
+        
+        print(f"{'CONDITION':<12} {'DURATION':<15} {'MAIN SYMPTOMS':<25} {'SEVERITY SIGNS'}")
+        print("-" * 80)
+        
+        comparison_data = {
+            'Fever': {
+                'duration': '2-5 days',
+                'main_symptoms': 'High temp, chills, aches',
+                'severity': 'Temp >39.5°C, confusion'
+            },
+            'Cold': {
+                'duration': '5-10 days', 
+                'main_symptoms': 'Runny nose, sore throat',
+                'severity': 'High fever, breathing issues'
+            },
+            'Cough': {
+                'duration': '1-3 weeks',
+                'main_symptoms': 'Persistent cough, phlegm',
+                'severity': 'Blood in sputum, chest pain'
+            },
+            'Headache': {
+                'duration': '2-8 hours',
+                'main_symptoms': 'Head pain, sensitivity',
+                'severity': 'Sudden severe onset, vision changes'
+            }
+        }
+        
+        for condition, data in comparison_data.items():
+            print(f"{condition:<12} {data['duration']:<15} {data['main_symptoms']:<25} {data['severity']}")
+        
+        print(f"\n💡 GENERAL GUIDELINES:")
+        print(f"   • Start with home remedies for mild symptoms")
+        print(f"   • Use medications as directed for moderate symptoms") 
+        print(f"   • Seek medical help immediately for severe symptoms")
+        print(f"   • Monitor symptoms and track changes")
+        print(f"   • Stay hydrated and get adequate rest for all conditions")
+        
+        input(f"\nPress Enter to continue...")
+    
+    def show_home_remedy_guidelines(self):
+        """Comprehensive home remedy guidelines"""
+        print(f"\n" + "="*60)
+        print("🏠 COMPREHENSIVE HOME REMEDY GUIDE")
+        print("="*60)
+        
+        print(f"\n🌿 NATURAL REMEDIES BY CATEGORY:")
+        
+        remedies = {
+            'Hydration & Nutrition': [
+                'Drink 8-10 glasses of water daily',
+                'Warm herbal teas (ginger, chamomile, peppermint)',
+                'Clear broths and soups for nutrition',
+                'Honey (for cough and sore throat - not for children <1 year)',
+                'Fresh fruits rich in Vitamin C',
+                'Avoid alcohol and caffeine'
+            ],
+            'Temperature & Environment': [
+                'Maintain comfortable room temperature (20-22°C)',
+                'Use humidifiers for dry air',
+                'Fresh air circulation',
+                'Cool compresses for fever',
+                'Warm compresses for congestion',
+                'Steam inhalation for respiratory symptoms'
+            ],
+            'Rest & Recovery': [
+                'Get 7-9 hours of sleep (adults) or age-appropriate rest',
+                'Limit physical activity during illness',
+                'Practice deep breathing exercises',
+                'Meditation or relaxation techniques',
+                'Comfortable sleeping position',
+                'Dark, quiet environment for headaches'
+            ],
+            'Hygiene & Prevention': [
+                'Wash hands frequently with soap',
+                'Use tissues and dispose properly',
+                'Avoid touching face with unwashed hands',
+                'Clean and disinfect surfaces regularly',
+                'Wear masks when around others if sick',
+                'Maintain distance from others when possible'
+            ]
+        }
+        
+        for category, remedy_list in remedies.items():
+            print(f"\n📌 {category.upper()}:")
+            for remedy in remedy_list:
+                print(f"   ✓ {remedy}")
+        
+        print(f"\n⚠️  IMPORTANT SAFETY NOTES:")
+        print(f"   • Honey is not safe for children under 1 year")
+        print(f"   • Essential oils should be used with caution")
+        print(f"   • Some herbs may interact with medications")
+        print(f"   • Pregnant/breastfeeding women should consult doctors")
+        print(f"   • Stop any remedy that causes adverse reactions")
+        
+        print(f"\n🚫 WHEN HOME REMEDIES ARE NOT ENOUGH:")
+        print(f"   • Symptoms worsen despite 2-3 days of home care")
+        print(f"   • High fever (>39°C/102°F) that doesn't respond")
+        print(f"   • Difficulty breathing or chest pain")
+        print(f"   • Severe dehydration")
+        print(f"   • Signs of secondary bacterial infection")
+        
+        input(f"\nPress Enter to continue...")
+    
+    def show_medication_safety(self):
+        """Medication safety guidelines"""
+        print(f"\n" + "="*60)
+        print("💊 MEDICATION SAFETY GUIDELINES")
+        print("="*60)
+        
+        print(f"\n📋 GENERAL MEDICATION SAFETY:")
+        safety_guidelines = [
+            'Always read labels and follow dosing instructions',
+            'Check expiration dates before use',
+            'Store medications in cool, dry places',
+            'Keep medications in original containers',
+            'Never share prescription medications',
+            'Inform healthcare providers of all medications you take',
+            'Be aware of drug interactions',
+            'Don\'t exceed recommended doses'
+        ]
+        
+        for guideline in safety_guidelines:
+            print(f"   ✓ {guideline}")
+        
+        print(f"\n🧒 PEDIATRIC MEDICATION SAFETY:")
+        pediatric_safety = [
+            'Use only pediatric formulations for children',
+            'Calculate doses by weight when specified',
+            'Never give aspirin to children under 18 (Reye\'s syndrome risk)',
+            'Use measuring devices, not household spoons',
+            'Keep all medications out of reach of children',
+            'Child-proof caps on all medications',
+            'Consult pediatrician before giving any new medication'
+        ]
+        
+        for safety in pediatric_safety:
+            print(f"   ✓ {safety}")
+        
+        print(f"\n🔄 COMMON DRUG INTERACTIONS TO AVOID:")
+        interactions = {
+            'Paracetamol': 'Avoid with alcohol, check other medications containing paracetamol',
+            'Ibuprofen': 'Avoid with blood thinners, take with food, limit duration',
+            'Aspirin': 'Avoid with blood thinners, not for children, take with food',
+            'Antihistamines': 'May cause drowsiness, avoid alcohol',
+            'Decongestants': 'May affect blood pressure, avoid if you have heart conditions'
+        }
+        
+        for med, interaction in interactions.items():
+            print(f"   • {med}: {interaction}")
+        
+        print(f"\n⚠️  WHEN TO CALL A PHARMACIST:")
+        print(f"   • Unsure about medication interactions")
+        print(f"   • Questions about dosing or timing")
+        print(f"   • Experiencing unexpected side effects")
+        print(f"   • Need advice on over-the-counter options")
+        print(f"   • Pregnancy or breastfeeding concerns")
+        
+        print(f"\n🚨 EMERGENCY MEDICATION SITUATIONS:")
+        print(f"   • Accidental overdose - Call Poison Control immediately")
+        print(f"   • Allergic reactions (rash, swelling, difficulty breathing)")
+        print(f"   • Severe side effects")
+        print(f"   • Medication errors")
+        
+        input(f"\nPress Enter to continue...")
+    
+    def show_health_summary(self):
+        """Display user's health summary and history"""
+        print(f"\n" + "="*60)
+        print("📊 YOUR HEALTH SUMMARY")
+        print("="*60)
+        
+        print(f"\n👤 PERSONAL INFORMATION:")
+        print(f"   Name: {self.user_info.get('name', 'Not provided')}")
+        print(f"   Age: {self.user_info.get('age', 'Not provided')} years")
+        print(f"   Gender: {self.user_info.get('gender', 'Not provided')}")
+        print(f"   Medical History: {self.user_info.get('medical_history', 'Not provided')}")
+        print(f"   Current Medications: {self.user_info.get('medications', 'Not provided')}")
+        
+        # Session information
+        session_duration = datetime.now() - self.session_start
+        print(f"\n📅 SESSION INFORMATION:")
+        print(f"   Session started: {self.session_start.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"   Session duration: {str(session_duration).split('.')[0]}")
+        print(f"   Consultations this session: {len(self.conversation_history)}")
+        
+        # Conversation history
+        if self.conversation_history:
+            print(f"\n📝 CONSULTATION HISTORY THIS SESSION:")
+            for i, consultation in enumerate(self.conversation_history, 1):
+                print(f"   {i}. {consultation['timestamp']}: {consultation['condition']} - {consultation['severity']}")
+        else:
+            print(f"\n📝 No consultations completed this session.")
+        
+        # Health recommendations
+        print(f"\n💡 PERSONALIZED HEALTH RECOMMENDATIONS:")
+        
+        # Age-based recommendations
+        age = self.user_info.get('age', 0)
+        if age < 18:
+            print(f"   • Ensure adequate sleep (9-11 hours for teens)")
+            print(f"   • Maintain regular pediatric checkups")
+            print(f"   • Focus on proper nutrition during growth")
+        elif age < 65:
+            print(f"   • Annual health checkups recommended")
+            print(f"   • Maintain work-life balance for stress management")
+            print(f"   • Regular exercise (150 min/week moderate activity)")
+        else:
+            print(f"   • More frequent health monitoring recommended")
+            print(f"   • Focus on fall prevention and balance")
+            print(f"   • Regular screening for age-related conditions")
+        
+        # Medical history considerations
+        if self.user_info.get('medical_history', 'None reported') != 'None reported':
+            print(f"   • Follow up regularly with specialists for {self.user_info['medical_history']}")
+            print(f"   • Monitor for complications related to existing conditions")
+        
+        # General recommendations
+        print(f"   • Stay hydrated (8-10 glasses of water daily)")
+        print(f"   • Maintain good hygiene practices")
+        print(f"   • Get adequate sleep and manage stress")
+        print(f"   • Eat a balanced diet rich in fruits and vegetables")
+        
+        input(f"\nPress Enter to continue...")
+    
+    def show_emergency_guidelines(self):
+        """Display emergency guidelines and when to seek immediate help"""
+        print(f"\n" + "="*60)
+        print("🆘 EMERGENCY MEDICAL GUIDELINES")
+        print("="*60)
+        
+        print(f"\n🚨 CALL EMERGENCY SERVICES (911/112) IMMEDIATELY FOR:")
+        
+        emergency_situations = [
+            'Difficulty breathing or shortness of breath',
+            'Chest pain or pressure lasting more than a few minutes',
+            'Sudden severe headache unlike any before',
+            'Loss of consciousness or fainting',
+            'Severe allergic reactions (swelling, difficulty breathing)',
+            'High fever with stiff neck and confusion',
+            'Severe abdominal pain',
+            'Signs of stroke (weakness, speech problems, face drooping)',
+            'Severe bleeding that won\'t stop',
+            'Poisoning or drug overdose'
+        ]
+        
+        for situation in emergency_situations:
+            print(f"   ⚠️  {situation}")
+        
+        print(f"\n🏥 SEEK URGENT MEDICAL CARE (within hours) FOR:")
+        
+        urgent_situations = [
+            'High fever (>39.5°C/103°F) that doesn\'t respond to medication',
+            'Persistent vomiting or inability to keep fluids down',
+            'Signs of severe dehydration',
+            'Worsening symptoms despite appropriate treatment',
+            'New or unusual symptoms that concern you',
+            'Symptoms lasting longer than expected',
+            'Mental health emergencies or thoughts of self-harm'
+        ]
+        
+        for situation in urgent_situations:
+            print(f"   🔸 {situation}")
+        
+        print(f"\n📞 IMPORTANT CONTACT NUMBERS:")
+        print(f"   • Emergency Services: 911 (US), 112 (EU), 999 (UK)")
+        print(f"   • Poison Control: 1-800-222-1222 (US)")
+        print(f"   • Your Doctor: [Add your doctor's number]")
+        print(f"   • Local Hospital: [Add local hospital number]")
+        print(f"   • Pharmacy: [Add your pharmacy number]")
+        
+        print(f"\n🎒 BASIC FIRST AID REMINDERS:")
+        first_aid_tips = [
+            'For minor cuts: Clean, apply pressure, bandage',
+            'For burns: Cool with cold water for 10-20 minutes',
+            'For sprains: Rest, Ice, Compression, Elevation (RICE)',
+            'For nosebleeds: Lean forward, pinch soft part of nose',
+            'For choking: Back blows and abdominal thrusts',
+            'Never move someone with possible spine injury'
+        ]
+        
+        for tip in first_aid_tips:
+            print(f"   ✓ {tip}")
+        
+        print(f"\n📋 WHAT TO TELL EMERGENCY RESPONDERS:")
+        print(f"   • Your exact location")
+        print(f"   • Nature of the emergency")
+        print(f"   • Number of people involved")
+        print(f"   • Current condition of patient(s)")
+        print(f"   • Your name and contact number")
+        print(f"   • Any medications or medical conditions")
+        
+        print(f"\n⚠️  REMEMBER:")
+        print(f"   • Stay calm and speak clearly")
+        print(f"   • Follow dispatcher's instructions")
+        print(f"   • Don't hang up until told to do so")
+        print(f"   • Keep emergency numbers easily accessible")
+        print(f"   • Update emergency contacts regularly")
+        
+        input(f"\nPress Enter to continue...")
+    
+    def enhanced_symptom_consultation(self):
+        """Enhanced symptom consultation with comprehensive assessment"""
+        print(f"\n" + "="*60)
+        print("🔍 COMPREHENSIVE SYMPTOM CONSULTATION")
+        print("="*60)
+        
+        print(f"\n📝 Please describe your symptoms in detail:")
+        print(f"Include: What you're feeling, when it started, severity, location, etc.")
+        print(f"Example: 'I have a throbbing headache on the right side for 2 hours, very painful'")
+        
+        while True:
+            user_input = input(f"\n🗣️  Describe your symptoms: ").strip()
+            valid, message = self.validate_input(user_input, "symptoms")
+            if valid:
+                break
+            print(f"❌ {message}")
+        
+        # Record consultation
+        consultation_time = datetime.now().strftime('%H:%M:%S')
+        
+        print(f"\n🤖 Analyzing your symptoms...")
+        time.sleep(2)  # Simulate processing time
+        
+        # Predict condition
+        disease, confidence = self.predict_disease(user_input)
+        
+        print(f"\n📊 PRELIMINARY ASSESSMENT:")
+        print(f"   Likely condition: {disease}")
+        print(f"   Confidence level: {confidence*100:.1f}%")
+        
+        if confidence < 0.7:
+            print(f"   ⚠️  Confidence is moderate - additional assessment needed")
+        
+        # Comprehensive symptom assessment
+        assessment_data = self.comprehensive_symptom_assessment(disease, user_input)
+        
+        # Provide treatment recommendations
+        self.provide_enhanced_treatment(disease, assessment_data)
+        
+        # Record in conversation history
+        self.conversation_history.append({
+            'timestamp': consultation_time,
+            'condition': disease,
+            'severity': assessment_data['final_severity'],
+            'symptoms': user_input,
+            'confidence': confidence
+        })
+    
+    def chat(self):
+        """Main chat interface with enhanced user experience"""
+        print("\n" + "="*70)
+        print("🏥 WELCOME TO AHAB - ADVANCED HEALTHCARE ASSISTANCE BOT")
+        print("🤖 Your Professional AI Health Companion")
+        print("="*70)
+        print(f"\n📅 Session started: {self.session_start.strftime('%A, %B %d, %Y at %H:%M')}")
+        print(f"\n⚠️  MEDICAL DISCLAIMER:")
+        print(f"   This system provides preliminary health information and guidance only.")
+        print(f"   It does NOT replace professional medical diagnosis or treatment.")
+        print(f"   Always consult qualified healthcare professionals for medical concerns.")
+        print(f"   In emergencies, call your local emergency services immediately.")
+        
+        input(f"\n✅ Press Enter to acknowledge and continue...")
+        
+        time.sleep(1)
+        self.get_user_info()
+        
+        while True:
+            choice = self.show_main_menu()
+            
+            if choice == '1':  # Symptom consultation
+                self.enhanced_symptom_consultation()
+            
+            elif choice == '2':  # Health conditions
+                self.show_health_conditions_menu()
+            
+            elif choice == '3':  # Health summary
+                self.show_health_summary()
+            
+            elif choice == '4':  # Emergency guidelines
+                self.show_emergency_guidelines()
+            
+            elif choice == '5':  # Exit
+                print(f"\n" + "="*60)
+                print(f"🙏 THANK YOU FOR USING AHAB")
+                print(f"="*60)
+                print(f"👋 Goodbye, {self.user_info.get('name', 'User')}!")
+                
+                if self.conversation_history:
+                    print(f"📊 Session Summary:")
+                    print(f"   • Consultations completed: {len(self.conversation_history)}")
+                    print(f"   • Session duration: {str(datetime.now() - self.session_start).split('.')[0]}")
+                
+                print(f"\n💡 Health Reminders:")
+                print(f"   • Monitor your symptoms and follow recommended care")
+                print(f"   • Consult healthcare professionals for persistent concerns")
+                print(f"   • Maintain good hygiene and healthy lifestyle habits")
+                print(f"   • Keep emergency contact numbers easily accessible")
+                
+                print(f"\n🌟 Stay healthy and take care!")
+                print(f"   AHAB is always here when you need health guidance.")
+                break
+
+# Enhanced initialization and execution
+if __name__ == "__main__":
+    print("🔄 Initializing Enhanced Healthcare Assistance Bot (AHAB)...")
+    print("🧠 Loading medical knowledge base...")
+    print("🔧 Calibrating diagnostic algorithms...")
+    
+    time.sleep(2)
+    
+    try:
+        chatbot = EnhancedHealthcareAssistanceBot()
+        print("AHAB successfully initialized!")
+        chatbot.chat()
+    except KeyboardInterrupt:
+        print(f"\n\n AHAB session terminated by user. Stay healthy!")
+    except Exception as e:
+        print(f"\n❌ An error occurred: {e}")
+        print(f"Please restart AHAB or contact support if the problem persists.")
